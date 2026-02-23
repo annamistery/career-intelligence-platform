@@ -4,9 +4,9 @@ databases:
   - name: career-intelligence-db
     databaseName: career_intelligence
     user: career_user
-    plan: starter        # можно заменить на free, если нужен бесплатный
+    plan: starter        # или free
     region: oregon
-    ipAllowList: []      # пустой список = доступ со всех IP
+    ipAllowList: []
 
 services:
   # Backend API
@@ -35,12 +35,11 @@ services:
     healthCheckPath: /health
     autoDeploy: true
 
-  # Frontend
+  # Frontend (static site — без region!)
   - type: web
     name: career-intelligence-frontend
     runtime: static
     plan: starter
-    region: oregon
     buildCommand: "npm install && npm run build"
     staticPublishPath: dist
     envVars:
