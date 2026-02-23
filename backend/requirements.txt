@@ -31,9 +31,6 @@ email-validator==2.1.0
 httpx==0.26.0
 aiofiles==23.2.1
 
-# CORS и middleware
-python-cors==1.0.0
-
 # Обработка дат
 python-dateutil==2.8.2
 
