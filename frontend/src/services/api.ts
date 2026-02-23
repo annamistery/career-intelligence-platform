@@ -3,14 +3,17 @@ import type {
   TokenResponse,
   LoginRequest,
   RegisterRequest,
-  User,
   Document,
   Analysis,
   AnalysisListItem,
   AnalysisRequest,
 } from '@/types/api';
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:8000';
+// Явно описываем, что у нас есть VITE_API_URL
+const API_BASE_URL =
+  (import.meta as ImportMeta & { env: { VITE_API_URL?: string } }).env
+    .VITE_API_URL || 'http://localhost:8000';
+
 const API_PREFIX = '/api/v1';
 
 class ApiService {
@@ -37,7 +40,7 @@ class ApiService {
     this.client.interceptors.response.use(
       (response) => response,
       async (error) => {
-        const originalRequest = error.config;
+        const originalRequest = error.config as any;
 
         if (error.response?.status === 401 && !originalRequest._retry) {
           originalRequest._retry = true;
@@ -56,6 +59,7 @@ class ApiService {
             localStorage.setItem('access_token', data.access_token);
             localStorage.setItem('refresh_token', data.refresh_token);
 
+            originalRequest.headers = originalRequest.headers || {};
             originalRequest.headers.Authorization = `Bearer ${data.access_token}`;
             return this.client(originalRequest);
           } catch {
