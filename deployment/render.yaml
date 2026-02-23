@@ -1,15 +1,14 @@
 # Render Blueprint for Career Intelligence Platform
 
-services:
-  # PostgreSQL Database
-  - type: postgres
-    name: career-intelligence-db
+databases:
+  - name: career-intelligence-db
     databaseName: career_intelligence
     user: career_user
-    plan: starter
+    plan: starter        # можно заменить на free, если нужен бесплатный
     region: oregon
-    ipAllowList: []
+    ipAllowList: []      # пустой список = доступ со всех IP
 
+services:
   # Backend API
   - type: web
     name: career-intelligence-backend
@@ -46,7 +45,7 @@ services:
     staticPublishPath: dist
     envVars:
       - key: VITE_API_URL
-        value: https://your-backend-url.onrender.com
+        value: "https://your-backend-url.onrender.com"
     headers:
       - path: /*
         name: Cache-Control
