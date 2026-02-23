@@ -13,10 +13,9 @@ services:
   - type: web
     name: career-intelligence-backend
     runtime: python
-    # plan:  <-- убрали
     region: oregon
-    buildCommand: "pip install -r requirements.txt"
-    startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -39,9 +38,8 @@ services:
   - type: web
     name: career-intelligence-frontend
     runtime: static
-    # plan:  <-- убрали
-    buildCommand: "npm install && npm run build"
-    staticPublishPath: dist
+    buildCommand: "cd frontend && npm install && npm run build"
+    staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_URL
         value: "https://your-backend-url.onrender.com"
