@@ -4,7 +4,7 @@ databases:
   - name: career-intelligence-db
     databaseName: career_intelligence
     user: career_user
-    plan: free          # вместо starter
+    plan: free          # для Postgres plan: free допустим
     region: oregon
     ipAllowList: []
 
@@ -13,7 +13,7 @@ services:
   - type: web
     name: career-intelligence-backend
     runtime: python
-    plan: free          # вместо starter
+    # plan:  <-- убрали
     region: oregon
     buildCommand: "pip install -r requirements.txt"
     startCommand: "uvicorn main:app --host 0.0.0.0 --port $PORT"
@@ -39,7 +39,7 @@ services:
   - type: web
     name: career-intelligence-frontend
     runtime: static
-    plan: free          # вместо starter
+    # plan:  <-- убрали
     buildCommand: "npm install && npm run build"
     staticPublishPath: dist
     envVars:
