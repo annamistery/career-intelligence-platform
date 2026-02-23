@@ -4,7 +4,7 @@ databases:
   - name: career-intelligence-db
     databaseName: career_intelligence
     user: career_user
-    plan: starter        # или free
+    plan: free
     region: oregon
     ipAllowList: []
 
