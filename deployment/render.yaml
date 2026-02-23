@@ -28,7 +28,7 @@ services:
       - key: GEMINI_MODEL
         value: gemini-2.5-pro
       - key: BACKEND_CORS_ORIGINS
-        value: '["https://your-frontend-url.onrender.com"]'
+        value: '["https://career-intelligence-frontend.onrender.com"]'
       - key: PYTHON_VERSION
         value: "3.11.7"
     healthCheckPath: /health
