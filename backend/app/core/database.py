@@ -5,9 +5,26 @@ from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sess
 from sqlalchemy.orm import declarative_base
 from app.core.config import settings
 
+
+def make_async_url(url: str) -> str:
+    """
+    Преобразует URL от Render / .env к async-формату для SQLAlchemy.
+    Примеры:
+    - postgres://...        -> postgresql+asyncpg://...
+    - postgresql://...      -> postgresql+asyncpg://...
+    """
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql://", 1)
+    if url.startswith("postgresql://") and "+asyncpg" not in url:
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+    return url
+
+
+ASYNC_DATABASE_URL = make_async_url(settings.DATABASE_URL)
+
 # Create async engine
 engine = create_async_engine(
-    settings.DATABASE_URL,
+    ASYNC_DATABASE_URL,
     echo=settings.DEBUG,
     future=True,
     pool_pre_ping=True,
@@ -29,7 +46,7 @@ Base = declarative_base()
 async def get_db() -> AsyncSession:
     """
     Dependency for getting async database session.
-    
+
     Yields:
         AsyncSession: Database session
     """
