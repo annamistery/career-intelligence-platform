@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiService } from '@/services/api';
 import { Analysis } from '@/types/api';
-import { RadarChart, PolarGrid, PolarAngleAxis, Radar, ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import {ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { ArrowLeft, Download, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
