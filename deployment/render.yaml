@@ -31,7 +31,7 @@ services:
       - key: BACKEND_CORS_ORIGINS
         value: '["https://your-frontend-url.onrender.com"]'
       - key: PYTHON_VERSION
-        value: "3.11"
+        value: "3.11.7"
     healthCheckPath: /health
     autoDeploy: true
 
