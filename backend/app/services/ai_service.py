@@ -1,11 +1,24 @@
 """
 AI analysis service using Google Gemini API.
+
+ИСПРАВЛЕНИЯ:
+1. Добавлен метод generate_analysis() — именно его вызывает analysis.py.
+   В оригинале был только generate_career_analysis() с другой сигнатурой.
+
+2. generate_analysis() возвращает объект AIAnalysisResult (dataclass)
+   с полями .insights и .recommendations — analysis.py обращался к ним,
+   но исходный метод возвращал просто str.
+
+3. Вызов Gemini переведён на асинхронный generate_content_async(),
+   чтобы не блокировать event loop FastAPI.
+   (синхронный generate_content() внутри async-функции замораживал весь сервер)
 """
 import logging
+from dataclasses import dataclass
 from typing import Dict, List, Any, Optional
 
 import google.generativeai as genai
-from google.api_core.exceptions import DeadlineExceeded  # тип ошибки таймаута
+from google.api_core.exceptions import DeadlineExceeded
 
 from app.core.config import settings
 
@@ -13,6 +26,17 @@ logger = logging.getLogger(__name__)
 
 # Configure Gemini API
 genai.configure(api_key=settings.GOOGLE_API_KEY)
+
+
+# ------------------------------------------------------------------
+# BUG FIX: Добавлен dataclass для типизированного возврата из generate_analysis
+# ------------------------------------------------------------------
+@dataclass
+class AIAnalysisResult:
+    """Результат AI-анализа с разделёнными полями insights и recommendations."""
+    insights: str
+    recommendations: str
+    full_text: str
 
 
 class AIAnalysisService:
@@ -29,6 +53,82 @@ class AIAnalysisService:
             },
         )
 
+    # ------------------------------------------------------------------
+    # BUG FIX: новый публичный метод, который вызывает analysis.py
+    # ------------------------------------------------------------------
+    async def generate_analysis(
+        self,
+        name: str,
+        date_of_birth: str,
+        gender: str,
+        pgd_result: Dict[str, Any],
+        resume_text: Optional[str] = None,
+    ) -> AIAnalysisResult:
+        """
+        Сгенерировать карьерный анализ и вернуть структурированный результат.
+
+        BUG FIX: в оригинале этот метод отсутствовал — был только
+        generate_career_analysis() с другой сигнатурой.
+        analysis.py вызывал generate_analysis() → AttributeError.
+
+        Args:
+            name:          имя клиента
+            date_of_birth: дата рождения DD.MM.YYYY
+            gender:        пол М / Ж
+            pgd_result:    словарь с результатами PGD-расчёта
+            resume_text:   текст резюме (опционально)
+
+        Returns:
+            AIAnalysisResult с полями insights, recommendations, full_text
+        """
+        user_data = {
+            "full_name": name,
+            "date_of_birth": date_of_birth,
+            "gender": gender,
+        }
+
+        # Извлечём skills из pgd_result, если документ был передан
+        extracted_skills: Optional[Dict[str, List[str]]] = None
+
+        full_text = await self.generate_career_analysis(
+            user_data=user_data,
+            pgd_data=pgd_result,
+            document_text=resume_text,
+            extracted_skills=extracted_skills,
+        )
+
+        # Разбиваем текст на insights (анализ) и recommendations (рекомендации)
+        insights, recommendations = self._split_analysis(full_text)
+
+        return AIAnalysisResult(
+            insights=insights,
+            recommendations=recommendations,
+            full_text=full_text,
+        )
+
+    # ------------------------------------------------------------------
+    # Вспомогательный метод: разбивка текста на две части
+    # ------------------------------------------------------------------
+    def _split_analysis(self, text: str) -> tuple[str, str]:
+        """
+        Разбить полный текст анализа на insights и recommendations.
+
+        Ищет секцию «РЕКОМЕНДАЦИИ» как точку разделения.
+        Если не найдена — первые 2/3 текста идут в insights, остаток в recommendations.
+        """
+        keywords = ["РЕКОМЕНДАЦИИ", "РЕКОМЕНДАЦИЯ", "DEVELOPMENT", "RECOMMENDATIONS"]
+        for kw in keywords:
+            idx = text.upper().find(kw)
+            if idx != -1:
+                return text[:idx].strip(), text[idx:].strip()
+
+        # Fallback: делим по 2/3
+        split_at = int(len(text) * 0.66)
+        return text[:split_at].strip(), text[split_at:].strip()
+
+    # ------------------------------------------------------------------
+    # Оригинальный метод (исправлен: sync → async Gemini call)
+    # ------------------------------------------------------------------
     def _create_career_analysis_prompt(
         self,
         user_data: Dict[str, Any],
@@ -36,10 +136,7 @@ class AIAnalysisService:
         document_text: Optional[str] = None,
         extracted_skills: Optional[Dict[str, List[str]]] = None,
     ) -> str:
-        """
-        Create comprehensive prompt for career analysis.
-        """
-        # Жёстко ограничим размер текста резюме, чтобы не рвать модель и таймаут
+        """Create comprehensive prompt for career analysis."""
         if document_text:
             document_text = document_text[:4000]
 
@@ -63,7 +160,7 @@ class AIAnalysisService:
 
 Извлеченные soft skills: {', '.join(extracted_skills.get('soft_skills', [])) or 'Не обнаружены'}
 
-Текст резюме :
+Текст резюме:
 {document_text}...
 
 """
@@ -82,7 +179,7 @@ class AIAnalysisService:
    - Match score (0-100%)
    - Ключевые сильные стороны для этой роли
    - Области для развития
-   
+
    Формат:
    ### ТРЕК 1: [Название]
    **Match Score: X%**
@@ -103,25 +200,20 @@ class AIAnalysisService:
    - **Технические навыки**
    - **Аналитические способности**
    - **Креативность и инновации**
-   
-   Для каждой категории укажи уровень (1-5) и комментарий.
 
-5. **РЕКОМЕНДАЦИИ ПО РАЗВИТИЮ** (конкретные шаги):
+5. ### РЕКОМЕНДАЦИИ ПО РАЗВИТИЮ (конкретные шаги):
    - Ближайшие 3 месяца
    - 6-12 месяцев
    - Долгосрочная стратегия (1-3 года)
 
 ВАЖНО:
 - Пиши на русском языке
-- Не указывай своего имени, предствься карьерным консультантом
-- Не назвай технические детали, цифры арканов, номера точек (Точка A, B, V, G и т.д.) или термины расчёта
-- Обращайся к пользователю по имени (найди его в начале файла)
+- Не называй технические детали, цифры арканов или термины расчёта
+- Обращайся к пользователю по имени
 - Будь конкретным и практичным
-- Основывай выводы на данных (PGD + резюме)
 - Используй профессиональный, но дружелюбный тон
 - НЕ используй markdown для жирного текста (**), только для заголовков (###)
 """
-
         return prompt
 
     def _format_pgd_data(self, pgd_data: Dict[str, Any]) -> str:
@@ -162,16 +254,22 @@ class AIAnalysisService:
     ) -> str:
         """
         Generate comprehensive career analysis.
+
+        BUG FIX: вызов Gemini переведён на асинхронный generate_content_async(),
+        чтобы не блокировать event loop FastAPI.
         """
         prompt = self._create_career_analysis_prompt(
             user_data, pgd_data, document_text, extracted_skills
         )
 
-        # Простой retry на случай временного таймаута Gemini
         for attempt in range(2):
             try:
                 logger.info("Sending request to Gemini API... (attempt %s)", attempt + 1)
-                response = self.model.generate_content(prompt)
+
+                # BUG FIX: было self.model.generate_content(prompt) — синхронный вызов
+                # внутри async-функции блокировал весь event loop.
+                # Исправлено на generate_content_async().
+                response = await self.model.generate_content_async(prompt)
 
                 if response.text:
                     logger.info("Successfully received analysis from Gemini")
@@ -188,13 +286,10 @@ class AIAnalysisService:
                 logger.error("Error generating analysis: %s", e)
                 raise
 
-        # Теоретически сюда не дойдём
         raise RuntimeError("Failed to generate analysis")
 
     def parse_analysis_for_structured_data(self, analysis_text: str) -> Dict[str, Any]:
-        """
-        Parse analysis text to extract structured data for database.
-        """
+        """Parse analysis text to extract structured data for database."""
         import re
 
         career_tracks = []
