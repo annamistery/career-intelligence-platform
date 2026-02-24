@@ -1,10 +1,12 @@
 """
 AI analysis service using Google Gemini API.
 """
-import os
 import logging
 from typing import Dict, List, Any, Optional
+
 import google.generativeai as genai
+from google.api_core.exceptions import DeadlineExceeded  # тип ошибки таймаута
+
 from app.core.config import settings
 
 logger = logging.getLogger(__name__)
@@ -24,7 +26,7 @@ class AIAnalysisService:
                 "temperature": settings.GEMINI_TEMPERATURE,
                 "top_p": 0.9,
                 "max_output_tokens": settings.GEMINI_MAX_TOKENS,
-            }
+            },
         )
 
     def _create_career_analysis_prompt(
@@ -32,20 +34,15 @@ class AIAnalysisService:
         user_data: Dict[str, Any],
         pgd_data: Dict[str, Any],
         document_text: Optional[str] = None,
-        extracted_skills: Optional[Dict[str, List[str]]] = None
+        extracted_skills: Optional[Dict[str, List[str]]] = None,
     ) -> str:
         """
         Create comprehensive prompt for career analysis.
-
-        Args:
-            user_data: User profile information
-            pgd_data: PGD calculation results
-            document_text: Extracted text from resume
-            extracted_skills: Extracted skills from documents
-
-        Returns:
-            Formatted prompt for Gemini
         """
+        # Жёстко ограничим размер текста резюме, чтобы не рвать модель и таймаут
+        if document_text:
+            document_text = document_text[:4000]
+
         prompt = f"""Ты — эксперт по карьерному консультированию и HR-аналитике с 20-летним опытом работы.
 Твоя задача — провести глубокий анализ личности и предоставить профессиональные рекомендации по карьерному развитию.
 
@@ -130,24 +127,24 @@ class AIAnalysisService:
     def _format_pgd_data(self, pgd_data: Dict[str, Any]) -> str:
         """Format PGD data for prompt."""
         formatted = "Основная чашка:\n"
-        main_cup = pgd_data.get('main_cup', {})
+        main_cup = pgd_data.get("main_cup", {})
         for key, value in main_cup.items():
             if value is not None:
                 formatted += f"  {key}: {value}\n"
 
         formatted += "\nРодовые данности:\n"
-        ancestral = pgd_data.get('ancestral_data', {})
+        ancestral = pgd_data.get("ancestral_data", {})
         for key, value in ancestral.items():
             if value is not None:
                 formatted += f"  {key}: {value}\n"
 
         formatted += "\nПерекрёсток (индивидуальные аспекты):\n"
-        crossroads = pgd_data.get('crossroads', {})
+        crossroads = pgd_data.get("crossroads", {})
         for key, value in crossroads.items():
             if value is not None:
                 formatted += f"  {key}: {value}\n"
 
-        tasks = pgd_data.get('tasks', {})
+        tasks = pgd_data.get("tasks", {})
         if tasks:
             formatted += "\nКармические задачи:\n"
             for key, value in tasks.items():
@@ -161,82 +158,77 @@ class AIAnalysisService:
         user_data: Dict[str, Any],
         pgd_data: Dict[str, Any],
         document_text: Optional[str] = None,
-        extracted_skills: Optional[Dict[str, List[str]]] = None
+        extracted_skills: Optional[Dict[str, List[str]]] = None,
     ) -> str:
         """
         Generate comprehensive career analysis.
-
-        Args:
-            user_data: User profile information
-            pgd_data: PGD calculation results
-            document_text: Extracted text from resume
-            extracted_skills: Extracted skills from documents
-
-        Returns:
-            AI-generated career analysis text
         """
         prompt = self._create_career_analysis_prompt(
             user_data, pgd_data, document_text, extracted_skills
         )
 
-        try:
-            logger.info("Sending request to Gemini API...")
-            response = self.model.generate_content(prompt)
+        # Простой retry на случай временного таймаута Gemini
+        for attempt in range(2):
+            try:
+                logger.info("Sending request to Gemini API... (attempt %s)", attempt + 1)
+                response = self.model.generate_content(prompt)
 
-            if response.text:
-                logger.info("Successfully received analysis from Gemini")
-                return response.text.strip()
-            else:
-                raise ValueError("Gemini returned empty response")
+                if response.text:
+                    logger.info("Successfully received analysis from Gemini")
+                    return response.text.strip()
+                else:
+                    raise ValueError("Gemini returned empty response")
 
-        except Exception as e:
-            logger.error(f"Error generating analysis: {e}")
-            raise
+            except DeadlineExceeded as e:
+                logger.warning("Gemini DeadlineExceeded on attempt %s: %s", attempt + 1, e)
+                if attempt == 1:
+                    logger.error("Gemini failed after retries: %s", e)
+                    raise
+            except Exception as e:
+                logger.error("Error generating analysis: %s", e)
+                raise
+
+        # Теоретически сюда не дойдём
+        raise RuntimeError("Failed to generate analysis")
 
     def parse_analysis_for_structured_data(self, analysis_text: str) -> Dict[str, Any]:
         """
         Parse analysis text to extract structured data for database.
-
-        Args:
-            analysis_text: Full analysis text from Gemini
-
-        Returns:
-            Dictionary with parsed data (career tracks, skills breakdown, etc.)
         """
-        # This is a simplified parser - in production, you might want more robust parsing
         import re
 
-        # Extract career tracks
         career_tracks = []
-        track_pattern = r'### ТРЕК \d+: (.+?)\n\*\*Match Score: (\d+)%\*\*\n\*\*Описание:\*\* (.+?)\n\*\*Сильные стороны:\*\* (.+?)\n\*\*Развивать:\*\* (.+?)(?=\n###|\Z)'
+        track_pattern = (
+            r"### ТРЕК \d+: (.+?)\n\*\*Match Score: (\d+)%\*\*\n\*\*Описание:\*\* (.+?)\n"
+            r"\*\*Сильные стороны:\*\* (.+?)\n\*\*Развивать:\*\* (.+?)(?=\n###|\Z)"
+        )
         matches = re.findall(track_pattern, analysis_text, re.DOTALL)
 
         for match in matches:
             title, score, description, strengths, development = match
-            career_tracks.append({
-                "title": title.strip(),
-                "match_score": float(score),
-                "description": description.strip(),
-                "key_strengths": [s.strip() for s in strengths.split(',')],
-                "development_areas": [d.strip() for d in development.split(',')]
-            })
+            career_tracks.append(
+                {
+                    "title": title.strip(),
+                    "match_score": float(score),
+                    "description": description.strip(),
+                    "key_strengths": [s.strip() for s in strengths.split(",")],
+                    "development_areas": [d.strip() for d in development.split(",")],
+                }
+            )
 
-        # Extract skills scores (looking for patterns like "soft skills: 75/100")
-        soft_score = 50.0  # default
-        hard_score = 50.0  # default
+        soft_score = 50.0
+        hard_score = 50.0
 
-        soft_match = re.search(r'soft skills.*?(\d+)',
-                               analysis_text, re.IGNORECASE)
+        soft_match = re.search(r"soft skills.*?(\d+)", analysis_text, re.IGNORECASE)
         if soft_match:
             soft_score = float(soft_match.group(1))
 
-        hard_match = re.search(r'hard skills.*?(\d+)',
-                               analysis_text, re.IGNORECASE)
+        hard_match = re.search(r"hard skills.*?(\d+)", analysis_text, re.IGNORECASE)
         if hard_match:
             hard_score = float(hard_match.group(1))
 
         return {
             "career_tracks": career_tracks,
             "soft_skills_score": soft_score,
-            "hard_skills_score": hard_score
+            "hard_skills_score": hard_score,
         }
