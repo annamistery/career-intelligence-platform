@@ -177,3 +177,8 @@ export const apiService = new ApiService();
     return response.data;
   }
 
+  async createAnalysis(request: AnalysisRequest): Promise<Analysis> {
+    console.log('createAnalysis payload:', request);
+    const response = await this.client.post<Analysis>('/analysis/create', request);
+    return response.data;
+  }
