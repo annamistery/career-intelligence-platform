@@ -2,7 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { apiService } from '@/services/api';
 import { Analysis } from '@/types/api';
-import {ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
+import { ResponsiveContainer, PieChart, Pie, Cell, Legend } from 'recharts';
 import { ArrowLeft, Download, TrendingUp } from 'lucide-react';
 import toast from 'react-hot-toast';
 
@@ -49,6 +49,13 @@ export const AnalysisPage: React.FC = () => {
     { name: 'Hard Skills', value: analysis.skills_breakdown.hard_skills_score, fill: '#10b981' },
   ];
 
+  // Удаляем/маскируем фразу с именем консультанта в тексте анализа
+  const cleanedAnalysisText = analysis.ai_analysis
+    .replace('Здравствуйте, Анна.', '')
+    .replace('Меня зовут [Ваше имя эксперта], и в течение следующих нескольких минут я буду вашим персональным карьерным стратегом.', '')
+    .replace('Меня зовут [Ваше имя эксперта], и в течение следующих нескольких минут я буду вашим персональным карьерным стратегом', '')
+    .trim();
+
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -74,7 +81,7 @@ export const AnalysisPage: React.FC = () => {
             <button
               onClick={() => {
                 const element = document.createElement('a');
-                const file = new Blob([analysis.ai_analysis], { type: 'text/plain' });
+                const file = new Blob([cleanedAnalysisText], { type: 'text/plain' });
                 element.href = URL.createObjectURL(file);
                 element.download = `career-analysis-${id}.txt`;
                 document.body.appendChild(element);
@@ -192,7 +199,7 @@ export const AnalysisPage: React.FC = () => {
             <h2 className="text-2xl font-semibold mb-4">Полный анализ</h2>
             <div className="prose max-w-none">
               <div className="whitespace-pre-wrap bg-gray-50 p-6 rounded-lg text-gray-700">
-                {analysis.ai_analysis}
+                {cleanedAnalysisText}
               </div>
             </div>
           </div>
