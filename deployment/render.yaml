@@ -4,7 +4,7 @@ databases:
   - name: career-intelligence-db
     databaseName: career_intelligence
     user: career_user
-    plan: free          # для Postgres plan: free допустим
+    plan: free
     region: oregon
     ipAllowList: []
 
@@ -14,14 +14,8 @@ services:
     name: career-intelligence-backend
     runtime: python
     region: oregon
-    buildCommand: |
-      cd backend
-      pip install -r requirements.txt
-      # прогоняем миграции на актуальную БД
-      alembic upgrade head
-    startCommand: |
-      cd backend
-      uvicorn main:app --host 0.0.0.0 --port $PORT
+    buildCommand: "cd backend && pip install -r requirements.txt"
+    startCommand: "cd backend && uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: DATABASE_URL
         fromDatabase:
@@ -44,10 +38,7 @@ services:
   - type: web
     name: career-intelligence-frontend
     runtime: static
-    buildCommand: |
-      cd frontend
-      npm install
-      npm run build
+    buildCommand: "cd frontend && npm install && npm run build"
     staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_URL
