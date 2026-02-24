@@ -49,7 +49,7 @@ export const DashboardPage: React.FC = () => {
     try {
       const analysis = await apiService.createAnalysis({ include_documents: true });
       toast.success('Анализ готов!');
-      navigate(`/analysis/${analysis.id}`);
+      navigate(`/analysis/`);
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Ошибка анализа');
     } finally {
