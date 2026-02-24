@@ -51,9 +51,11 @@ structlog==24.1.0
 # Тестирование
 pytest==7.4.4
 pytest-asyncio==0.23.3
-httpx==0.26.0
 
-sqlalchemy==2.0.25
-asyncpg==0.29.0
+# Синхронный драйвер (для Alembic миграций)
 psycopg2-binary==2.9.9
 
+# BUG FIX: удалены дублирующиеся записи:
+# sqlalchemy==2.0.25  (было дважды)
+# asyncpg==0.29.0     (было дважды)
+# httpx==0.26.0       (было дважды)
