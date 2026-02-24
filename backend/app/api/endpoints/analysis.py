@@ -1,3 +1,18 @@
+"""
+Career analysis endpoints.
+
+ИСПРАВЛЕНИЯ:
+1. PGDCalculator() → PGDCalculator() с вызовом calculator.calculate(...)
+   (конструктор без аргументов теперь допустим — см. pgd_service.py)
+
+2. ai_service.generate_analysis() теперь реально существует в ai_service.py
+   и возвращает AIAnalysisResult с .insights и .recommendations.
+
+3. AnalysisResponse.from_orm() → AnalysisResponse.model_validate()
+   from_orm() — устаревший Pydantic v1 API, в Pydantic v2 вызывает AttributeError.
+
+4. Дублирующий импорт `from typing import List` перенесён наверх.
+"""
 from typing import List
 
 from fastapi import APIRouter, Depends, HTTPException, status, Response
@@ -27,6 +42,7 @@ async def calculate_pgd(
     """
     Calculate PGD numbers for given date of birth.
     """
+    # BUG FIX: PGDCalculator() — без обязательных аргументов (исправлено в pgd_service.py)
     calculator = PGDCalculator()
     result = calculator.calculate(
         date_of_birth=payload.date_of_birth,
@@ -42,10 +58,8 @@ async def independent_analysis(
     db: AsyncSession = Depends(get_db),
 ) -> AnalysisResponse:
     """
-    Create analysis based only on name + date of birth (+ optional client_document_id),
-    without uploading a new resume.
+    Create analysis based only on name + date of birth (+ optional client_document_id).
     """
-    # If client_document_id is passed, ensure it belongs to the user
     document: Document | None = None
     if payload.client_document_id is not None:
         result = await db.execute(
@@ -62,6 +76,7 @@ async def independent_analysis(
             )
 
     ai_service = AIAnalysisService()
+    # BUG FIX: PGDCalculator() без аргументов
     calculator = PGDCalculator()
 
     # Calculate PGD
@@ -70,7 +85,9 @@ async def independent_analysis(
         gender=payload.gender,
     )
 
-    # Call AI to generate analysis text & recommendations
+    # BUG FIX: вызов generate_analysis() (добавлен в ai_service.py),
+    # который возвращает AIAnalysisResult с полями .insights и .recommendations.
+    # В оригинале: метод не существовал → AttributeError при запросе.
     ai_result = await ai_service.generate_analysis(
         name=payload.name,
         date_of_birth=payload.date_of_birth,
@@ -84,7 +101,7 @@ async def independent_analysis(
         client_name=payload.name,
         client_date_of_birth=payload.date_of_birth,
         client_gender=payload.gender,
-        pgd_data=pgd_result.model_dump(),
+        pgd_data=pgd_result,
         insights=ai_result.insights,
         recommendations=ai_result.recommendations,
         client_document_id=document.id if document else None,
@@ -93,7 +110,9 @@ async def independent_analysis(
     await db.commit()
     await db.refresh(analysis)
 
-    return AnalysisResponse.from_orm(analysis)
+    # BUG FIX: from_orm() → model_validate()
+    # from_orm() — Pydantic v1, вызывает AttributeError в Pydantic v2
+    return AnalysisResponse.model_validate(analysis)
 
 
 @router.post("/create", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED)
@@ -105,7 +124,6 @@ async def create_analysis(
     """
     Create analysis for a client based on PGD + resume (required document).
     """
-    # Ensure document exists and belongs to the user
     if payload.client_document_id is None:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -127,6 +145,7 @@ async def create_analysis(
         )
 
     ai_service = AIAnalysisService()
+    # BUG FIX: PGDCalculator() без аргументов
     calculator = PGDCalculator()
 
     # Calculate PGD
@@ -135,7 +154,7 @@ async def create_analysis(
         gender=payload.gender,
     )
 
-    # Call AI to generate analysis using resume text
+    # BUG FIX: generate_analysis() вместо несуществующего метода
     ai_result = await ai_service.generate_analysis(
         name=payload.name,
         date_of_birth=payload.date_of_birth,
@@ -149,7 +168,7 @@ async def create_analysis(
         client_name=payload.name,
         client_date_of_birth=payload.date_of_birth,
         client_gender=payload.gender,
-        pgd_data=pgd_result.model_dump(),
+        pgd_data=pgd_result,
         insights=ai_result.insights,
         recommendations=ai_result.recommendations,
         client_document_id=document.id,
@@ -158,26 +177,24 @@ async def create_analysis(
     await db.commit()
     await db.refresh(analysis)
 
-    return AnalysisResponse.from_orm(analysis)
+    # BUG FIX: from_orm() → model_validate()
+    return AnalysisResponse.model_validate(analysis)
 
-
-from typing import List
 
 @router.get("/", response_model=List[AnalysisResponse])
 async def list_analyses(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[AnalysisResponse]:
-    """
-    List analyses of the current user (history).
-    """
+    """List analyses of the current user (history)."""
     result = await db.execute(
         select(Analysis)
         .where(Analysis.user_id == current_user.id)
         .order_by(Analysis.created_at.desc())
     )
     analyses: List[Analysis] = result.scalars().all()
-    return [AnalysisResponse.from_orm(a) for a in analyses]
+    # BUG FIX: from_orm() → model_validate()
+    return [AnalysisResponse.model_validate(a) for a in analyses]
 
 
 @router.get("/{analysis_id}", response_model=AnalysisResponse)
@@ -186,9 +203,7 @@ async def get_analysis(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AnalysisResponse:
-    """
-    Get a single analysis by id, only for the owner.
-    """
+    """Get a single analysis by id, only for the owner."""
     result = await db.execute(
         select(Analysis).where(
             Analysis.id == analysis_id,
@@ -203,7 +218,8 @@ async def get_analysis(
             detail="Analysis not found",
         )
 
-    return AnalysisResponse.from_orm(analysis)
+    # BUG FIX: from_orm() → model_validate()
+    return AnalysisResponse.model_validate(analysis)
 
 
 @router.delete("/{analysis_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -212,9 +228,7 @@ async def delete_analysis(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """
-    Delete a single analysis of the current user.
-    """
+    """Delete a single analysis of the current user."""
     result = await db.execute(
         select(Analysis).where(
             Analysis.id == analysis_id,
@@ -239,9 +253,7 @@ async def delete_all_analyses(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """
-    Delete all analyses of the current user (clear history).
-    """
+    """Delete all analyses of the current user (clear history)."""
     await db.execute(
         delete(Analysis).where(Analysis.user_id == current_user.id)
     )
