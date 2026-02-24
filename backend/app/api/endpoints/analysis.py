@@ -161,11 +161,13 @@ async def create_analysis(
     return AnalysisResponse.from_orm(analysis)
 
 
-@router.get("/", response_model=List[AnalysisListItem])
+from typing import List
+
+@router.get("/", response_model=List[AnalysisResponse])
 async def list_analyses(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
-) -> List[AnalysisListItem]:
+) -> List[AnalysisResponse]:
     """
     List analyses of the current user (history).
     """
@@ -175,16 +177,7 @@ async def list_analyses(
         .order_by(Analysis.created_at.desc())
     )
     analyses: List[Analysis] = result.scalars().all()
-    return [
-        AnalysisListItem(
-            id=a.id,
-            client_name=a.client_name,
-            client_date_of_birth=a.client_date_of_birth,
-            client_gender=a.client_gender,
-            created_at=a.created_at,
-        )
-        for a in analyses
-    ]
+    return [AnalysisResponse.from_orm(a) for a in analyses]
 
 
 @router.get("/{analysis_id}", response_model=AnalysisResponse)
