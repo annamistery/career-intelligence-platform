@@ -66,8 +66,8 @@ class AIAnalysisService:
 
 Извлеченные soft skills: {', '.join(extracted_skills.get('soft_skills', [])) or 'Не обнаружены'}
 
-Текст резюме (фрагмент):
-{document_text[:2000]}...
+Текст резюме:
+{document_text}...
 
 """
         
