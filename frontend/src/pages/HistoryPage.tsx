@@ -31,7 +31,7 @@ export const HistoryPage: React.FC = () => {
     if (!confirm('Удалить этот анализ?')) return;
     try {
       await apiService.deleteAnalysis(id);
-      setAnalyses(prev => prev.filter(a => a.id !== id));
+      setAnalyses((prev) => prev.filter((a) => a.id !== id));
       toast.success('Анализ удалён');
     } catch (error: any) {
       toast.error(error.response?.data?.detail || 'Ошибка удаления');
@@ -124,7 +124,8 @@ export const HistoryPage: React.FC = () => {
                       </span>
                     </div>
                     <p className="text-sm text-gray-600">
-                      Карьерных треков: {analysis.career_tracks_count}
+                      Клиент: {analysis.client_name} ({analysis.client_date_of_birth},{' '}
+                      {analysis.client_gender})
                     </p>
                   </div>
                   <button className="mt-4 w-full py-2 bg-primary-50 text-primary-600 rounded-lg hover:bg-primary-100 transition-colors">
