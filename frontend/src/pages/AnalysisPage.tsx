@@ -40,7 +40,7 @@ export const AnalysisPage: React.FC = () => {
     );
   }
 
-  if (!analysis || !analysis.skills_breakdown) {
+  if (!analysis) {
     return (
       <div className="min-h-screen flex items-center justify-center">
         <div className="text-xl text-gray-600">Анализ не найден</div>
@@ -48,20 +48,33 @@ export const AnalysisPage: React.FC = () => {
     );
   }
 
-  const skillsData = [
-    {
-      name: 'Soft Skills',
-      value: analysis.skills_breakdown.soft_skills_score,
-      fill: '#0ea5e9',
-    },
-    {
-      name: 'Hard Skills',
-      value: analysis.skills_breakdown.hard_skills_score,
-      fill: '#10b981',
-    },
-  ];
+  // skills_breakdown и career_tracks по схеме опциональные,
+  // поэтому аккуратно проверяем их наличие
+  const hasSkills =
+    !!analysis.skills_breakdown &&
+    typeof analysis.skills_breakdown.soft_skills_score === 'number' &&
+    typeof analysis.skills_breakdown.hard_skills_score === 'number';
 
-  const cleanedAnalysisText = analysis.ai_analysis
+  const hasCareerTracks = Array.isArray(analysis.career_tracks) && analysis.career_tracks.length > 0;
+
+  const skillsData = hasSkills
+    ? [
+        {
+          name: 'Soft Skills',
+          value: analysis.skills_breakdown!.soft_skills_score,
+          fill: '#0ea5e9',
+        },
+        {
+          name: 'Hard Skills',
+          value: analysis.skills_breakdown!.hard_skills_score,
+          fill: '#10b981',
+        },
+      ]
+    : [];
+
+  // В бэкенде поле называется `insights`, а не `ai_analysis`
+  const rawText = analysis.insights || '';
+  const cleanedAnalysisText = rawText
     .replace('Здравствуйте, Анна.', '')
     .replace(
       'Меня зовут [Ваше имя эксперта], и в течение следующих нескольких минут я буду вашим персональным карьерным стратегом.',
@@ -92,13 +105,24 @@ export const AnalysisPage: React.FC = () => {
       <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
         <div className="bg-white rounded-lg shadow-lg p-8 mb-8">
           <div className="flex justify-between items-center mb-6">
-            <h1 className="text-3xl font-bold text-gray-900">
-              Результаты карьерного анализа
-            </h1>
+            <div>
+              <h1 className="text-3xl font-bold text-gray-900">
+                Результаты карьерного анализа
+              </h1>
+              {analysis.client_name && (
+                <p className="text-gray-500 mt-1">
+                  Клиент: {analysis.client_name} (
+                  {analysis.client_date_of_birth}, {analysis.client_gender})
+                </p>
+              )}
+            </div>
+
             <button
               onClick={() => {
                 const element = document.createElement('a');
-                const file = new Blob([cleanedAnalysisText], { type: 'text/plain' });
+                const file = new Blob([cleanedAnalysisText || rawText], {
+                  type: 'text/plain',
+                });
                 element.href = URL.createObjectURL(file);
                 element.download = `career-analysis-${id}.txt`;
                 document.body.appendChild(element);
@@ -113,128 +137,132 @@ export const AnalysisPage: React.FC = () => {
           </div>
 
           {/* Skills Balance */}
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Баланс навыков</h2>
-              <div className="flex justify-center">
-                <ResponsiveContainer width="100%" height={300}>
-                  <PieChart>
-                    <Pie
-                      data={skillsData}
-                      cx="50%"
-                      cy="50%"
-                      labelLine={false}
-                      label={(entry: any) =>
-                        `${entry.name}: ${entry.value.toFixed(0)}%`
-                      }
-                      outerRadius={100}
-                      fill="#8884d8"
-                      dataKey="value"
-                    >
-                      {skillsData.map((entry, index) => (
-                        <Cell key={`cell-${index}`} fill={entry.fill} />
-                      ))}
-                    </Pie>
-                    <Legend />
-                  </PieChart>
-                </ResponsiveContainer>
-              </div>
-              <p className="text-center text-lg font-medium mt-4">
-                Соотношение: {analysis.skills_breakdown.balance_ratio}
-              </p>
-            </div>
-
-            <div>
-              <h2 className="text-xl font-semibold mb-4">Ваши навыки</h2>
-              <div className="space-y-4">
-                <div>
-                  <h3 className="font-medium text-gray-700 mb-2">Soft Skills:</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {analysis.skills_breakdown.soft_skills
-                      .slice(0, 10)
-                      .map((skill, idx) => (
-                        <span
-                          key={idx}
-                          className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                  </div>
+          {hasSkills && (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Баланс навыков</h2>
+                <div className="flex justify-center">
+                  <ResponsiveContainer width="100%" height={300}>
+                    <PieChart>
+                      <Pie
+                        data={skillsData}
+                        cx="50%"
+                        cy="50%"
+                        labelLine={false}
+                        label={(entry: any) =>
+                          `${entry.name}: ${entry.value.toFixed(0)}%`
+                        }
+                        outerRadius={100}
+                        fill="#8884d8"
+                        dataKey="value"
+                      >
+                        {skillsData.map((entry, index) => (
+                          <Cell key={`cell-${index}`} fill={entry.fill} />
+                        ))}
+                      </Pie>
+                      <Legend />
+                    </PieChart>
+                  </ResponsiveContainer>
                 </div>
-                <div>
-                  <h3 className="font-medium text-gray-700 mb-2">Hard Skills:</h3>
-                  <div className="flex flex-wrap gap-2">
-                    {analysis.skills_breakdown.hard_skills
-                      .slice(0, 10)
-                      .map((skill, idx) => (
-                        <span
-                          key={idx}
-                          className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm"
-                        >
-                          {skill}
-                        </span>
-                      ))}
-                  </div>
-                </div>
+                <p className="text-center text-lg font-medium mt-4">
+                  Соотношение: {analysis.skills_breakdown!.balance_ratio}
+                </p>
               </div>
-            </div>
-          </div>
 
-          {/* Career Tracks */}
-          <div className="mb-8">
-            <h2 className="text-2xl font-semibold mb-4 flex items-center gap-2">
-              <TrendingUp className="w-6 h-6 text-primary-600" />
-              Рекомендуемые карьерные треки
-            </h2>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {analysis.career_tracks.map((track, idx) => (
-                <div
-                  key={idx}
-                  className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow"
-                >
-                  <div className="flex justify-between items-start mb-3">
-                    <h3 className="text-lg font-semibold text-gray-900">
-                      {track.title}
-                    </h3>
-                    <span className="px-3 py-1 bg-primary-100 text-primary-700 rounded-full text-sm font-medium">
-                      {track.match_score}%
-                    </span>
-                  </div>
-                  <p className="text-gray-600 text-sm mb-4">
-                    {track.description}
-                  </p>
-                  <div className="mb-3">
-                    <h4 className="text-sm font-medium text-gray-700 mb-1">
-                      Ваши сильные стороны:
-                    </h4>
-                    <ul className="list-disc list-inside text-sm text-gray-600">
-                      {track.key_strengths.slice(0, 3).map((strength, i) => (
-                        <li key={i}>{strength}</li>
-                      ))}
-                    </ul>
+              <div>
+                <h2 className="text-xl font-semibold mb-4">Ваши навыки</h2>
+                <div className="space-y-4">
+                  <div>
+                    <h3 className="font-medium text-gray-700 mb-2">Soft Skills:</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {analysis.skills_breakdown!.soft_skills
+                        .slice(0, 10)
+                        .map((skill, idx) => (
+                          <span
+                            key={idx}
+                            className="px-3 py-1 bg-blue-100 text-blue-700 rounded-full text-sm"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                    </div>
                   </div>
                   <div>
-                    <h4 className="text-sm font-medium text-gray-700 mb-1">
-                      Развивать:
-                    </h4>
-                    <ul className="list-disc list-inside text-sm text-gray-600">
-                      {track.development_areas.slice(0, 3).map((area, i) => (
-                        <li key={i}>{area}</li>
-                      ))}
-                    </ul>
+                    <h3 className="font-medium text-gray-700 mb-2">Hard Skills:</h3>
+                    <div className="flex flex-wrap gap-2">
+                      {analysis.skills_breakdown!.hard_skills
+                        .slice(0, 10)
+                        .map((skill, idx) => (
+                          <span
+                            key={idx}
+                            className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm"
+                          >
+                            {skill}
+                          </span>
+                        ))}
+                    </div>
                   </div>
                 </div>
-              ))}
+              </div>
             </div>
-          </div>
+          )}
+
+          {/* Career Tracks */}
+          {hasCareerTracks && (
+            <div className="mb-8">
+              <h2 className="text-2xl font-semibold mb-4 flex items-center gap-2">
+                <TrendingUp className="w-6 h-6 text-primary-600" />
+                Рекомендуемые карьерные треки
+              </h2>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                {analysis.career_tracks!.map((track, idx) => (
+                  <div
+                    key={idx}
+                    className="border border-gray-200 rounded-lg p-6 hover:shadow-lg transition-shadow"
+                  >
+                    <div className="flex justify-between items-start mb-3">
+                      <h3 className="text-lg font-semibold text-gray-900">
+                        {track.title}
+                      </h3>
+                      <span className="px-3 py-1 bg-primary-100 text-primary-700 rounded-full text-sm font-medium">
+                        {track.match_score}%
+                      </span>
+                    </div>
+                    <p className="text-gray-600 text-sm mb-4">
+                      {track.description}
+                    </p>
+                    <div className="mb-3">
+                      <h4 className="text-sm font-medium text-gray-700 mb-1">
+                        Ваши сильные стороны:
+                      </h4>
+                      <ul className="list-disc list-inside text-sm text-gray-600">
+                        {track.key_strengths.slice(0, 3).map((strength, i) => (
+                          <li key={i}>{strength}</li>
+                        ))}
+                      </ul>
+                    </div>
+                    <div>
+                      <h4 className="text-sm font-medium text-gray-700 mb-1">
+                        Развивать:
+                      </h4>
+                      <ul className="list-disc list-inside text-sm text-gray-600">
+                        {track.development_areas.slice(0, 3).map((area, i) => (
+                          <li key={i}>{area}</li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* AI Analysis */}
           <div>
             <h2 className="text-2xl font-semibold mb-4">Полный анализ</h2>
             <div className="prose max-w-none">
               <div className="whitespace-pre-wrap bg-gray-50 p-6 rounded-lg text-gray-700">
-                {cleanedAnalysisText}
+                {cleanedAnalysisText || rawText || 'Текст анализа недоступен.'}
               </div>
             </div>
           </div>
