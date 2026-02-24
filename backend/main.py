@@ -2,7 +2,6 @@
 Main FastAPI application entry point.
 """
 from contextlib import asynccontextmanager
-from typing import List
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,26 +26,11 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS origins
-# settings.BACKEND_CORS_ORIGINS обычно List[str] или строка с JSON/CSV — приводим к списку строк
-origins: List[str] = []
-
-if isinstance(settings.BACKEND_CORS_ORIGINS, (list, tuple)):
-    origins = [str(o) for o in settings.BACKEND_CORS_ORIGINS]
-elif isinstance(settings.BACKEND_CORS_ORIGINS, str) and settings.BACKEND_CORS_ORIGINS:
-    # например, '["https://foo"]' или 'https://foo,https://bar'
-    if settings.BACKEND_CORS_ORIGINS.strip().startswith("["):
-        # JSON-список
-        import json
-
-        origins = [str(o) for o in json.loads(settings.BACKEND_CORS_ORIGINS)]
-    else:
-        # CSV-строка
-        origins = [o.strip() for o in settings.BACKEND_CORS_ORIGINS.split(",") if o.strip()]
-
-# На всякий случай можно добавить локальный фронт для разработки
-if "http://localhost:5173" not in origins:
-    origins.append("http://localhost:5173")
+# CORS: явно разрешаем прод-фронт и локальную разработку
+origins = [
+    "https://career-intelligence-frontend.onrender.com",
+    "http://localhost:5173",
+]
 
 app.add_middleware(
     CORSMiddleware,
