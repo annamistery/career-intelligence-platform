@@ -5,7 +5,7 @@ import { apiService } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import toast from 'react-hot-toast';
 import { Upload, FileText, Sparkles, LogOut, BarChart3 } from 'lucide-react';
-import axios from 'axios'; // ← ДОБАВИЛИ
+import axios from 'axios';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -51,29 +51,22 @@ export const DashboardPage: React.FC = () => {
       return;
     }
 
-    // Берём имя/дату рождения/пол пользователя
     const name = user.full_name || user.email;
-    const date_of_birth = user.date_of_birth || ''; // должно быть "DD.MM.YYYY"
-    const gender = user.gender || '';               // "М" или "Ж"
+    const date_of_birth = user.date_of_birth || ''; // ожидается "DD.MM.YYYY"
+    const gender = user.gender || '';               // ожидается "М" или "Ж"
 
     setIsAnalyzing(true);
     try {
-      console.log('createAnalysis payload:', {
+      const payload = {
         name,
         date_of_birth,
         gender,
         client_document_id: uploadedFile.id,
         include_documents: true,
-      });
+      };
+      console.log('createAnalysis payload:', payload);
 
-      const analysis = await apiService.createAnalysis({
-        name,
-        date_of_birth,
-        gender,
-        client_document_id: uploadedFile.id,
-        include_documents: true,
-      });
-
+      const analysis = await apiService.createAnalysis(payload);
       toast.success('Анализ готов!');
       navigate(`/analysis/${analysis.id}`);
     } catch (error: any) {
@@ -102,10 +95,6 @@ export const DashboardPage: React.FC = () => {
     navigate('/login');
   };
 
-  // остальной JSX без изменений...
-};
-
-
   return (
     <div className="min-h-screen bg-gray-50">
       {/* Header */}
@@ -115,7 +104,9 @@ export const DashboardPage: React.FC = () => {
             Career Intelligence Platform
           </h1>
           <div className="flex items-center gap-4">
-            <span className="text-gray-600">Привет, {user?.full_name || user?.email}!</span>
+            <span className="text-gray-600">
+              Привет, {user?.full_name || user?.email}!
+            </span>
             <button
               onClick={handleLogout}
               className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
@@ -184,8 +175,8 @@ export const DashboardPage: React.FC = () => {
             </h2>
 
             <p className="text-gray-600 mb-6">
-              Наша система проанализирует вашу психографическую матрицу (PGD), навыки из резюме и
-              предоставит персональные рекомендации по карьерному развитию.
+              Наша система проанализирует вашу психографическую матрицу (PGD),
+              навыки из резюме и предоставит персональные рекомендации по карьерному развитию.
             </p>
 
             <button
