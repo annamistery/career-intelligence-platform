@@ -42,7 +42,7 @@ services:
     staticPublishPath: frontend/dist
     envVars:
       - key: VITE_API_URL
-        value: "https://career-intelligence-backend.onrender.com/"
+        value: "https://career-intelligence-backend.onrender.com"
     headers:
       - path: /*
         name: Cache-Control
