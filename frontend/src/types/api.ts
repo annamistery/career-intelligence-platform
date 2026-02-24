@@ -41,15 +41,19 @@ export interface Document {
   uploaded_at: string;
 }
 
+// ===== PGD =====
+
 export interface PGDData {
   main_cup: Record<string, number | null>;
   ancestral_data: Record<string, number | null>;
   crossroads: Record<string, number | null>;
   tasks?: Record<string, number | null>;
   business_periods?: {
-    business_periods: Record<string, number | null>;
+    [key: string]: Record<string, number | null> | null;
   };
 }
+
+// ===== Analysis =====
 
 export interface CareerTrack {
   title: string;
@@ -67,25 +71,42 @@ export interface SkillsBreakdown {
   balance_ratio: string;
 }
 
+// Соответствует backend AnalysisResponse
 export interface Analysis {
   id: number;
   pgd_data: PGDData;
-  ai_analysis: string;
-  career_tracks: CareerTrack[];
-  skills_breakdown: SkillsBreakdown;
+
+  client_name: string;
+  client_date_of_birth: string;
+  client_gender: string;
+  insights: string;
+  recommendations: string;
+  client_document_id?: number | null;
+
+  skills_breakdown?: SkillsBreakdown | null;
+  career_tracks?: CareerTrack[] | null;
+
   created_at: string;
 }
 
+// Если хочешь облегчённый список:
 export interface AnalysisListItem {
   id: number;
+  client_name: string;
+  client_date_of_birth: string;
+  client_gender: string;
   created_at: string;
-  career_tracks_count: number;
 }
 
+// Тело запроса на /analysis/create и /analysis/independent
 export interface AnalysisRequest {
-  include_documents: boolean;
+  name: string;
+  date_of_birth: string;              // "DD.MM.YYYY"
+  gender: string;                     // "М" или "Ж"
+  client_document_id?: number | null; // обязателен для /create
+  include_documents?: boolean;
 }
 
 export interface ApiError {
-  detail: string;
+  detail: unknown;
 }
