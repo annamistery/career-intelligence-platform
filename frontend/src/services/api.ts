@@ -140,3 +140,40 @@ class ApiService {
 }
 
 export const apiService = new ApiService();
+
+  // ========== Analysis ==========
+
+  async createAnalysis(request: AnalysisRequest): Promise<Analysis> {
+    const response = await this.client.post<Analysis>('/analysis/create', request);
+    return response.data;
+  }
+
+  async listAnalyses(): Promise<AnalysisListItem[]> {
+    const response = await this.client.get<AnalysisListItem[]>('/analysis/');
+    return response.data;
+  }
+
+  async getAnalysis(id: number): Promise<Analysis> {
+    const response = await this.client.get<Analysis>(`/analysis/${id}`);
+    return response.data;
+  }
+
+  async deleteAnalysis(id: number): Promise<void> {
+    await this.client.delete(`/analysis/${id}`);
+  }
+
+  async clearAnalyses(): Promise<void> {
+    await this.client.delete('/analysis/');
+  }
+
+  // Новый метод для независимого анализа по дате рождения + опциональное резюме
+  async independentAnalysis(payload: {
+    name: string;
+    date_of_birth: string;
+    gender: string;
+    client_document_id?: number | null;
+  }): Promise<Analysis> {
+    const response = await this.client.post<Analysis>('/analysis/independent', payload);
+    return response.data;
+  }
+
