@@ -126,6 +126,17 @@ class ApiService {
     const response = await this.client.get<Analysis>(`/analysis/${id}`);
     return response.data;
   }
+
+  // Новый метод для независимого анализа по дате рождения + опциональное резюме
+  async independentAnalysis(payload: {
+    name: string;
+    date_of_birth: string;
+    gender: string;
+    client_document_id?: number | null;
+  }): Promise<Analysis> {
+    const response = await this.client.post<Analysis>('/analysis/independent', payload);
+    return response.data;
+  }
 }
 
 export const apiService = new ApiService();
