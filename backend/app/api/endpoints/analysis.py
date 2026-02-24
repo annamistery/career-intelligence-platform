@@ -10,10 +10,10 @@ from app.models.models import User, Analysis, Document
 from app.models.schemas import (
     AnalysisRequest,
     AnalysisResponse,
-    AnalysisListItem,
     PGDCalculationRequest,
     PGDCalculationResponse,
 )
+
 from app.services.pgd_service import PGDCalculator
 from app.services.ai_service import AIAnalysisService
 
