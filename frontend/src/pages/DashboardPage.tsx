@@ -5,6 +5,7 @@ import { apiService } from '@/services/api';
 import { useAuthStore } from '@/stores/authStore';
 import toast from 'react-hot-toast';
 import { Upload, FileText, Sparkles, LogOut, BarChart3 } from 'lucide-react';
+import axios from 'axios'; // ← ДОБАВИЛИ
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
@@ -45,13 +46,52 @@ export const DashboardPage: React.FC = () => {
       return;
     }
 
+    if (!user) {
+      toast.error('Пользователь не найден');
+      return;
+    }
+
+    // Берём имя/дату рождения/пол пользователя
+    const name = user.full_name || user.email;
+    const date_of_birth = user.date_of_birth || ''; // должно быть "DD.MM.YYYY"
+    const gender = user.gender || '';               // "М" или "Ж"
+
     setIsAnalyzing(true);
     try {
-      const analysis = await apiService.createAnalysis({ include_documents: true });
+      console.log('createAnalysis payload:', {
+        name,
+        date_of_birth,
+        gender,
+        client_document_id: uploadedFile.id,
+        include_documents: true,
+      });
+
+      const analysis = await apiService.createAnalysis({
+        name,
+        date_of_birth,
+        gender,
+        client_document_id: uploadedFile.id,
+        include_documents: true,
+      });
+
       toast.success('Анализ готов!');
       navigate(`/analysis/${analysis.id}`);
     } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Ошибка анализа');
+      if (axios.isAxiosError(error)) {
+        const detail = (error.response?.data as any)?.detail;
+        console.log('analysis/create error detail:', detail);
+
+        let message = 'Ошибка анализа';
+        if (Array.isArray(detail)) {
+          message = detail.map((e) => e.msg).join('; ');
+        } else if (typeof detail === 'string') {
+          message = detail;
+        }
+
+        toast.error(message);
+      } else {
+        toast.error('Ошибка анализа');
+      }
     } finally {
       setIsAnalyzing(false);
     }
@@ -61,6 +101,10 @@ export const DashboardPage: React.FC = () => {
     logout();
     navigate('/login');
   };
+
+  // остальной JSX без изменений...
+};
+
 
   return (
     <div className="min-h-screen bg-gray-50">
