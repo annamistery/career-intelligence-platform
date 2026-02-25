@@ -1,19 +1,5 @@
-"""
-AI analysis service using Google Gemini API.
-
-ИСПРАВЛЕНИЯ:
-1. Добавлен метод generate_analysis() — именно его вызывает analysis.py.
-   В оригинале был только generate_career_analysis() с другой сигнатурой.
-
-2. generate_analysis() возвращает объект AIAnalysisResult (dataclass)
-   с полями .insights и .recommendations — analysis.py обращался к ним,
-   но исходный метод возвращал просто str.
-
-3. Вызов Gemini переведён на асинхронный generate_content_async(),
-   чтобы не блокировать event loop FastAPI.
-   (синхронный generate_content() внутри async-функции замораживал весь сервер)
-"""
 import logging
+import json
 from dataclasses import dataclass
 from typing import Dict, List, Any, Optional
 
@@ -28,9 +14,6 @@ logger = logging.getLogger(__name__)
 genai.configure(api_key=settings.GOOGLE_API_KEY)
 
 
-# ------------------------------------------------------------------
-# BUG FIX: Добавлен dataclass для типизированного возврата из generate_analysis
-# ------------------------------------------------------------------
 @dataclass
 class AIAnalysisResult:
     """Результат AI-анализа с разделёнными полями insights и recommendations."""
@@ -40,10 +23,13 @@ class AIAnalysisResult:
 
 
 class AIAnalysisService:
-    """Service for AI-powered career analysis using Gemini."""
+    """
+    Сервис для карьерного анализа с использованием Gemini.
+    Поддерживает три режима: PGD, резюме, или совместный анализ.
+    """
 
     def __init__(self):
-        """Initialize AI service with Gemini model."""
+        """Инициализация AI-сервиса с моделью Gemini."""
         self.model = genai.GenerativeModel(
             model_name=settings.GEMINI_MODEL,
             generation_config={
@@ -53,278 +39,240 @@ class AIAnalysisService:
             },
         )
 
-    # ------------------------------------------------------------------
-    # BUG FIX: новый публичный метод, который вызывает analysis.py
-    # ------------------------------------------------------------------
     async def generate_analysis(
         self,
         name: str,
         date_of_birth: str,
         gender: str,
-        pgd_result: Dict[str, Any],
+        pgd_result: Optional[Dict[str, Any]] = None,
         resume_text: Optional[str] = None,
+        use_pgd: bool = True,
+        use_resume: bool = True,
     ) -> AIAnalysisResult:
         """
-        Сгенерировать карьерный анализ и вернуть структурированный результат.
-
-        BUG FIX: в оригинале этот метод отсутствовал — был только
-        generate_career_analysis() с другой сигнатурой.
-        analysis.py вызывал generate_analysis() → AttributeError.
-
-        Args:
-            name:          имя клиента
-            date_of_birth: дата рождения DD.MM.YYYY
-            gender:        пол М / Ж
-            pgd_result:    словарь с результатами PGD-расчёта
-            resume_text:   текст резюме (опционально)
-
-        Returns:
-            AIAnalysisResult с полями insights, recommendations, full_text
+        Генерирует карьерный анализ на основе выбранных источников данных.
         """
-        user_data = {
-            "full_name": name,
-            "date_of_birth": date_of_birth,
-            "gender": gender,
-        }
+        if use_pgd and not pgd_result:
+            raise ValueError("Анализ по PGD запрошен, но данные pgd_result не предоставлены.")
+        if use_resume and not resume_text:
+            raise ValueError("Анализ по резюме запрошен, но текст resume_text не предоставлен.")
+        if not use_pgd and not use_resume:
+            raise ValueError("Необходимо выбрать хотя бы один источник данных (PGD или резюме).")
 
-        # Извлечём skills из pgd_result, если документ был передан
+        user_data = {"full_name": name, "date_of_birth": date_of_birth, "gender": gender}
+
         extracted_skills: Optional[Dict[str, List[str]]] = None
+        if use_resume and resume_text:
+            logger.info("Извлечение навыков из резюме...")
+            extracted_skills = await self._extract_skills_from_resume(resume_text)
+            logger.info(f"Извлечено навыков: {extracted_skills}")
 
-        full_text = await self.generate_career_analysis(
+        prompt = self._create_career_analysis_prompt(
             user_data=user_data,
-            pgd_data=pgd_result,
-            document_text=resume_text,
+            pgd_data=pgd_result if use_pgd else None,
+            document_text=resume_text if use_resume else None,
             extracted_skills=extracted_skills,
         )
-
-        # Разбиваем текст на insights (анализ) и recommendations (рекомендации)
+        
+        full_text = await self._generate_text_from_prompt(prompt)
+        
         insights, recommendations = self._split_analysis(full_text)
-
+        
         return AIAnalysisResult(
             insights=insights,
             recommendations=recommendations,
             full_text=full_text,
         )
 
-    # ------------------------------------------------------------------
-    # Вспомогательный метод: разбивка текста на две части
-    # ------------------------------------------------------------------
-    def _split_analysis(self, text: str) -> tuple[str, str]:
+    async def _extract_skills_from_resume(self, resume_text: str) -> Dict[str, List[str]]:
+        """Использует Gemini для извлечения hard и soft skills из текста резюме."""
+        prompt = f"""
+        Проанализируй следующий текст резюме и извлеки из него hard-skills (технические и предметные навыки) 
+        и soft-skills (личные качества, коммуникативные навыки).
+        Верни результат в виде JSON-объекта со следующей структурой:
+        {{
+          "hard_skills": ["навык1", "навык2", ...],
+          "soft_skills": ["навык1", "навык2", ...]
+        }}
+        ТЕКСТ РЕЗЮМЕ:\n{resume_text[:4000]}
         """
-        Разбить полный текст анализа на insights и recommendations.
+        try:
+            response_text = await self._generate_text_from_prompt(prompt)
+            cleaned_response = response_text.strip().replace("```json", "").replace("```", "")
+            skills_data = json.loads(cleaned_response)
+            return {
+                "hard_skills": skills_data.get("hard_skills", []),
+                "soft_skills": skills_data.get("soft_skills", []),
+            }
+        except (json.JSONDecodeError, Exception) as e:
+            logger.error(f"Не удалось извлечь и распарсить навыки из резюме: {e}")
+            return {"hard_skills": [], "soft_skills": []}
 
-        Ищет секцию «РЕКОМЕНДАЦИИ» как точку разделения.
-        Если не найдена — первые 2/3 текста идут в insights, остаток в recommendations.
-        """
-        keywords = ["РЕКОМЕНДАЦИИ", "РЕКОМЕНДАЦИЯ", "DEVELOPMENT", "RECOMMENDATIONS"]
-        for kw in keywords:
-            idx = text.upper().find(kw)
-            if idx != -1:
-                return text[:idx].strip(), text[idx:].strip()
-
-        # Fallback: делим по 2/3
-        split_at = int(len(text) * 0.66)
-        return text[:split_at].strip(), text[split_at:].strip()
-
-    # ------------------------------------------------------------------
-    # Оригинальный метод (исправлен: sync → async Gemini call)
-    # ------------------------------------------------------------------
+    # ### ИЗМЕНЕНО: Метод использует ВАШ промпт для постановки задачи ###
     def _create_career_analysis_prompt(
         self,
         user_data: Dict[str, Any],
-        pgd_data: Dict[str, Any],
-        document_text: Optional[str] = None,
-        extracted_skills: Optional[Dict[str, List[str]]] = None,
+        pgd_data: Optional[Dict[str, Any]],
+        document_text: Optional[str],
+        extracted_skills: Optional[Dict[str, List[str]]],
     ) -> str:
-        """Create comprehensive prompt for career analysis."""
-        if document_text:
-            document_text = document_text[:4000]
+        """Создает комплексный промпт для анализа из доступных данных."""
+        
+        prompt_parts = [
+            "Ты — эксперт по карьерному консультированию и HR-аналитике с 20-летним опытом работы.",
+            "Твоя задача — провести глубокий анализ личности и предоставить профессиональные рекомендации по карьерному развитию.",
+            f"\nДАННЫЕ ПОЛЬЗОВАТЕЛЯ:\nИмя: {user_data.get('full_name', 'Не указано')}\n"
+            f"Дата рождения: {user_data.get('date_of_birth', 'Не указано')}\n"
+            f"Пол: {user_data.get('gender', 'Не указано')}\n",
+        ]
 
-        prompt = f"""Ты — эксперт по карьерному консультированию и HR-аналитике с 20-летним опытом работы.
-Твоя задача — провести глубокий анализ личности и предоставить профессиональные рекомендации по карьерному развитию.
-
-ДАННЫЕ ПОЛЬЗОВАТЕЛЯ:
-Имя: {user_data.get('full_name', 'Не указано')}
-Дата рождения: {user_data.get('date_of_birth', 'Не указано')}
-Пол: {user_data.get('gender', 'Не указано')}
-
-ПСИХОГРАФИЧЕСКИЙ ПРОФИЛЬ (PGD-МАТРИЦА):
-{self._format_pgd_data(pgd_data)}
-
-"""
+        if pgd_data:
+            prompt_parts.append("ПСИХОГРАФИЧЕСКИЙ ПРОФИЛЬ (PGD-МАТРИЦА):")
+            prompt_parts.append(self._format_pgd_data(pgd_data))
 
         if document_text and extracted_skills:
-            prompt += f"""ДАННЫЕ ИЗ РЕЗЮМЕ:
+            prompt_parts.append("ДАННЫЕ ИЗ РЕЗЮМЕ:")
+            prompt_parts.append(f"Извлеченные hard skills: {', '.join(extracted_skills.get('hard_skills', [])) or 'Не обнаружены'}")
+            prompt_parts.append(f"Извлеченные soft skills: {', '.join(extracted_skills.get('soft_skills', [])) or 'Не обнаружены'}")
+            prompt_parts.append(f"Текст резюме:\n{document_text[:4000]}...\n")
+        
+        # --- НАЧАЛО БЛОКА С ВАШИМ ПРОМПТОМ ---
+        # Формулируем основу для анализа
+        analysis_basis = " и ".join(filter(None, ["PGD-матрицы" if pgd_data else None, "данных резюме" if document_text else None]))
 
-Извлеченные hard skills: {', '.join(extracted_skills.get('hard_skills', [])) or 'Не обнаружены'}
+        # Подставляем основу в ваш шаблон
+        task_prompt = f"""ТВОЯ ЗАДАЧА:
 
-Извлеченные soft skills: {', '.join(extracted_skills.get('soft_skills', [])) or 'Не обнаружены'}
-
-Текст резюме:
-{document_text}...
-
-"""
-
-        prompt += """ТВОЯ ЗАДАЧА:
-
-1. **ГЛУБОКИЙ АНАЛИЗ ЛИЧНОСТИ** (2-3 абзаца):
-   - Проанализируй психографический профиль на основе PGD-матрицы
+1\. \*\*ГЛУБОКИЙ АНАЛИЗ ЛИЧНОСТИ\*\* (2-3 абзаца):
+   - Проанализируй психографический профиль на основе {analysis_basis}
    - Определи ключевые черты характера, мотивацию, стиль работы
    - Укажи сильные стороны и зоны роста
 
-2. **КАРЬЕРНЫЕ ТРЕКИ** (минимум 3 варианта):
+2\. \*\*КАРЬЕРНЫЕ ТРЕКИ\*\* (минимум 3 варианта):
    Для каждого трека укажи:
    - Название профессии/направления
-   - Почему это подходит (на основе PGD + резюме)
+   - Почему это подходит (на основе предоставленных данных)
    - Match score (0-100%)
    - Ключевые сильные стороны для этой роли
    - Области для развития
-
    Формат:
-   ### ТРЕК 1: [Название]
-   **Match Score: X%**
-   **Описание:** [2-3 предложения]
-   **Сильные стороны:** [список]
-   **Развивать:** [список]
+   \### ТРЕК 1: \[Название\]
+   \*\*Match Score: X%\*\*
+   \*\*Описание:\*\* \[2-3 предложения\]
+   \*\*Сильные стороны:\*\* \[список\]
+   \*\*Развивать:\*\* \[список\]
 
-3. **БАЛАНС НАВЫКОВ**:
+3\. \*\*БАЛАНС НАВЫКОВ\*\*:
    - Оцени текущий уровень soft skills (0-100)
    - Оцени текущий уровень hard skills (0-100)
    - Укажи соотношение (например, 65% soft / 35% hard)
    - Дай рекомендации по балансу
 
-4. **ДЕТАЛИЗАЦИЯ НАВЫКОВ**:
+4\. \*\*ДЕТАЛИЗАЦИЯ НАВЫКОВ\*\*:
    Классифицируй все обнаруженные навыки по категориям:
-   - **Лидерство и управление**
-   - **Коммуникация и эмпатия**
-   - **Технические навыки**
-   - **Аналитические способности**
-   - **Креативность и инновации**
+   - \*\*Лидерство и управление\*\*
+   - \*\*Коммуникация и эмпатия\*\*
+   - \*\*Технические навыки\*\*
+   - \*\*Аналитические способности\*\*
+   - \*\*Креативность и инновации\*\*
 
-5. ### РЕКОМЕНДАЦИИ ПО РАЗВИТИЮ (конкретные шаги):
+5\. ### РЕКОМЕНДАЦИИ ПО РАЗВИТИЮ (конкретные шаги):
    - Ближайшие 3 месяца
    - 6-12 месяцев
    - Долгосрочная стратегия (1-3 года)
 
 ВАЖНО:
-- Пиши на русском языке
-- Говори от имени карьерного кансультанта, не назыввай своего имени
-- Не называй технические детали, цифры арканов или термины расчёта
-- Обращайся к пользователю по имени
-- Будь конкретным и практичным
-- Используй профессиональный, но дружелюбный тон
-- НЕ используй markdown для жирного текста (**), только для заголовков (###)
+\- Пиши на русском языке
+\- Говори от имени карьерного кансультанта, не назыввай своего имени
+\- Не называй технические детали, цифры арканов или термины расчёта
+\- Обращайся к пользователю по имени
+\- Будь конкретным и практичным
+\- Используй профессиональный, но дружелюбный тон
+\- НЕ используй markdown для жирного текста (\*\*), только для заголовков (###)
 """
-        return prompt
+        prompt_parts.append(task_prompt)
+        # --- КОНЕЦ БЛОКА С ВАШИМ ПРОМПТОМ ---
+
+        return "\n".join(prompt_parts)
 
     def _format_pgd_data(self, pgd_data: Dict[str, Any]) -> str:
-        """Format PGD data for prompt."""
+        """Форматирует данные PGD для промпта."""
         formatted = "Основная чашка:\n"
         main_cup = pgd_data.get("main_cup", {})
         for key, value in main_cup.items():
-            if value is not None:
-                formatted += f"  {key}: {value}\n"
-
+            if value is not None: formatted += f"  {key}: {value}\n"
+        
         formatted += "\nРодовые данности:\n"
         ancestral = pgd_data.get("ancestral_data", {})
         for key, value in ancestral.items():
-            if value is not None:
-                formatted += f"  {key}: {value}\n"
+            if value is not None: formatted += f"  {key}: {value}\n"
 
         formatted += "\nПерекрёсток (индивидуальные аспекты):\n"
         crossroads = pgd_data.get("crossroads", {})
         for key, value in crossroads.items():
-            if value is not None:
-                formatted += f"  {key}: {value}\n"
+            if value is not None: formatted += f"  {key}: {value}\n"
 
         tasks = pgd_data.get("tasks", {})
         if tasks:
             formatted += "\nКармические задачи:\n"
             for key, value in tasks.items():
-                if value is not None:
-                    formatted += f"  {key}: {value}\n"
-
+                if value is not None: formatted += f"  {key}: {value}\n"
+        
         return formatted
 
-    async def generate_career_analysis(
-        self,
-        user_data: Dict[str, Any],
-        pgd_data: Dict[str, Any],
-        document_text: Optional[str] = None,
-        extracted_skills: Optional[Dict[str, List[str]]] = None,
-    ) -> str:
-        """
-        Generate comprehensive career analysis.
-
-        BUG FIX: вызов Gemini переведён на асинхронный generate_content_async(),
-        чтобы не блокировать event loop FastAPI.
-        """
-        prompt = self._create_career_analysis_prompt(
-            user_data, pgd_data, document_text, extracted_skills
-        )
-
+    async def _generate_text_from_prompt(self, prompt: str) -> str:
+        """Отправляет промпт в Gemini API и возвращает текстовый результат с ретраями."""
         for attempt in range(2):
             try:
-                logger.info("Sending request to Gemini API... (attempt %s)", attempt + 1)
-
-                # BUG FIX: было self.model.generate_content(prompt) — синхронный вызов
-                # внутри async-функции блокировал весь event loop.
-                # Исправлено на generate_content_async().
+                logger.info("Отправка запроса в Gemini API... (попытка %s)", attempt + 1)
                 response = await self.model.generate_content_async(prompt)
-
                 if response.text:
-                    logger.info("Successfully received analysis from Gemini")
+                    logger.info("Ответ от Gemini успешно получен.")
                     return response.text.strip()
-                else:
-                    raise ValueError("Gemini returned empty response")
-
+                raise ValueError("Gemini вернул пустой ответ.")
             except DeadlineExceeded as e:
-                logger.warning("Gemini DeadlineExceeded on attempt %s: %s", attempt + 1, e)
+                logger.warning("Gemini DeadlineExceeded на попытке %s: %s", attempt + 1, e)
                 if attempt == 1:
-                    logger.error("Gemini failed after retries: %s", e)
+                    logger.error("Gemini не ответил после нескольких попыток: %s", e)
                     raise
             except Exception as e:
-                logger.error("Error generating analysis: %s", e)
+                logger.error("Ошибка при генерации ответа от Gemini: %s", e)
                 raise
+        raise RuntimeError("Не удалось сгенерировать ответ после нескольких попыток.")
 
-        raise RuntimeError("Failed to generate analysis")
+    def _split_analysis(self, text: str) -> tuple[str, str]:
+        """Разбивает полный текст на insights и recommendations."""
+        keywords = ["РЕКОМЕНДАЦИИ", "РЕКОМЕНДАЦИЯ", "DEVELOPMENT", "RECOMMENDATIONS"]
+        for kw in keywords:
+            idx = text.upper().find(kw)
+            if idx != -1:
+                return text[:idx].strip(), text[idx:].strip()
+        split_at = int(len(text) * 0.66)
+        return text[:split_at].strip(), text[split_at:].strip()
 
     def parse_analysis_for_structured_data(self, analysis_text: str) -> Dict[str, Any]:
-        """Parse analysis text to extract structured data for database."""
+        """Извлекает структурированные данные из текста анализа."""
         import re
-
         career_tracks = []
         track_pattern = (
             r"### ТРЕК \d+: (.+?)\n\*\*Match Score: (\d+)%\*\*\n\*\*Описание:\*\* (.+?)\n"
             r"\*\*Сильные стороны:\*\* (.+?)\n\*\*Развивать:\*\* (.+?)(?=\n###|\Z)"
         )
         matches = re.findall(track_pattern, analysis_text, re.DOTALL)
-
         for match in matches:
             title, score, description, strengths, development = match
-            career_tracks.append(
-                {
-                    "title": title.strip(),
-                    "match_score": float(score),
-                    "description": description.strip(),
-                    "key_strengths": [s.strip() for s in strengths.split(",")],
-                    "development_areas": [d.strip() for d in development.split(",")],
-                }
-            )
+            career_tracks.append({
+                "title": title.strip(), "match_score": float(score),
+                "description": description.strip(),
+                "key_strengths": [s.strip() for s in strengths.split(",")],
+                "development_areas": [d.strip() for d in development.split(",")],
+            })
 
-        soft_score = 50.0
-        hard_score = 50.0
-
-        soft_match = re.search(r"soft skills.*?(\d+)", analysis_text, re.IGNORECASE)
-        if soft_match:
-            soft_score = float(soft_match.group(1))
-
-        hard_match = re.search(r"hard skills.*?(\d+)", analysis_text, re.IGNORECASE)
-        if hard_match:
-            hard_score = float(hard_match.group(1))
+        soft_score_match = re.search(r"soft skills.*?(\d+)", analysis_text, re.IGNORECASE)
+        hard_score_match = re.search(r"hard skills.*?(\d+)", analysis_text, re.IGNORECASE)
 
         return {
             "career_tracks": career_tracks,
-            "soft_skills_score": soft_score,
-            "hard_skills_score": hard_score,
+            "soft_skills_score": float(soft_score_match.group(1)) if soft_score_match else 50.0,
+            "hard_skills_score": float(hard_score_match.group(1)) if hard_score_match else 50.0,
         }
