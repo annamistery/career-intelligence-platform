@@ -148,3 +148,60 @@ class ApiService {
 }
 
 export const apiService = new ApiService();
+
+const apiService = {
+  // ... (ваш существующий метод getAnalysis)
+  getAnalysis: async (id: number): Promise<Analysis> => {
+    // Ваша текущая реализация
+  },
+  
+  // ### ДОБАВЬТЕ ЭТОТ МЕТОД ###
+  /**
+   * Создает новый анализ на сервере.
+   * @param analysisData - Данные для анализа (соответствуют AnalysisCreateRequest в FastAPI).
+   */
+  createAnalysis: async (analysisData: {
+    name: string;
+    date_of_birth: string;
+    gender: string;
+    include_pgd: boolean;
+    include_resume: boolean;
+    client_document_id: number | null;
+  }): Promise<{ analysis_id: number }> => {
+    // Отправляем запрос на новый единый эндпоинт POST /analysis/
+    const response = await fetch(`${API_BASE_URL}/api/v1/analysis/`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${localStorage.getItem('token')}`,
+      },
+      body: JSON.stringify(analysisData),
+    });
+    if (!response.ok) {
+        const err = await response.json();
+        throw new Error(err.detail || 'Ошибка создания анализа');
+    }
+    return response.json();
+  },
+
+  // ### И ДОБАВЬТЕ ЭТОТ МЕТОД ###
+  /**
+   * Получает список документов пользователя.
+   */
+  getUserDocuments: async (): Promise<{ id: number; filename: string; created_at: string }[]> => {
+    const response = await fetch(`${API_BASE_URL}/api/v1/documents/`, {
+        method: 'GET',
+        headers: {
+            'Authorization': `Bearer ${localStorage.getItem('token')}`,
+        },
+    });
+    if (!response.ok) {
+        throw new Error('Ошибка загрузки документов');
+    }
+    return response.json();
+  },
+  
+  // ... (остальные ваши методы)
+};
+
+export { apiService };
