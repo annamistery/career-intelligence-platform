@@ -1,8 +1,6 @@
-"""
-Main FastAPI application entry point.
-"""
-from contextlib import asynccontextmanager
+# backend/main.py
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from app.core.config import settings
 from app.core.database import init_db
@@ -12,11 +10,9 @@ from fastapi.middleware.cors import CORSMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Application lifespan events."""
-    # Startup
     await init_db()
     yield
     # Shutdown (cleanup if needed)
-
 
 app = FastAPI(
     title=settings.APP_NAME,
@@ -24,25 +20,33 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORS: явно разрешаем прод-фронт и локальную разработку
+# ### НАЧАЛО ИСПРАВЛЕНИЯ CORS ###
+
+# Список доменов, которым разрешено обращаться к вашему API
 origins = [
-    "https://your-frontend-app.onrender.com", # URL вашего фронтенда
-    # "http://localhost:5173", # Можно оставить для локальной разработки
+    # URL вашего развернутого фронтенда (взят из лога ошибки)
+    "https://career-intelligence-frontend.onrender.com", 
+    
+    # URL для локальной разработки (полезно оставить)
+    "http://localhost:5173", 
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=origins, # Указываем конкретный разрешенный источник
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+    allow_origins=origins,  # <-- Указываем конкретный список разрешенных источников
+    allow_credentials=True, # <-- Разрешаем передачу cookie и заголовков авторизации
+    allow_methods=["*"],    # <-- Разрешаем все методы (GET, POST, DELETE и т.д.)
+    allow_headers=["*"],    # <-- Разрешаем все заголовки
 )
+
+# ### КОНЕЦ ИСПРАВЛЕНИЯ CORS ###
+
+
 # Include routers
 app.include_router(auth.router, prefix=settings.API_V1_PREFIX)
 app.include_router(documents.router, prefix=settings.API_V1_PREFIX)
 app.include_router(analysis.router, prefix=settings.API_V1_PREFIX)
 app.include_router(debug_migrations.router, prefix=settings.API_V1_PREFIX)
-
 
 @app.get("/")
 async def root():
@@ -53,16 +57,13 @@ async def root():
         "docs": "/docs",
     }
 
-
 @app.get("/health")
 async def health_check():
     """Health check endpoint."""
     return {"status": "healthy"}
 
-
 if __name__ == "__main__":
     import uvicorn
-
     uvicorn.run(
         "main:app",
         host="0.0.0.0",
