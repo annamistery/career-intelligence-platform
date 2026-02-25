@@ -2,17 +2,14 @@
 Career analysis endpoints.
 
 ИЗМЕНЕНИЯ В ЭТОЙ ВЕРСИИ:
-1.  Унифицированы эндпоинты POST /independent и POST /create в один - POST /.
-2.  Добавлена новая Pydantic-модель AnalysisCreateRequest с флагами include_pgd
-    и include_resume для гибкого выбора типа анализа.
-3.  Эндпоинт теперь передает флаги use_pgd и use_resume в AI-сервис,
-    активируя логику раздельного или совместного анализа.
-4.  Сохранены все исправления из предыдущих версий (Pydantic v2, async вызовы).
+1.  Заменен устаревший декоратор @root_validator на новый @model_validator
+    в соответствии с требованиями Pydantic v2. Это исправит ошибку при деплое.
 """
-from typing import List, Optional
+from typing import List, Optional, Any
 
 from fastapi import APIRouter, Depends, HTTPException, status, Response
-from pydantic import BaseModel, Field, root_validator
+# ИЗМЕНЕНО: Добавлен импорт model_validator
+from pydantic import BaseModel, Field, model_validator
 from sqlalchemy import select, delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +27,7 @@ from app.services.ai_service import AIAnalysisService
 router = APIRouter(prefix="/analysis", tags=["Career Analysis"])
 
 
-# ### НОВАЯ МОДЕЛЬ ЗАПРОСА ДЛЯ СОЗДАНИЯ АНАЛИЗА ###
+# ### МОДЕЛЬ ЗАПРОСА С ИСПРАВЛЕННЫМ ВАЛИДАТОРОМ ###
 class AnalysisCreateRequest(BaseModel):
     """Модель для создания нового анализа с гибким выбором источников."""
     name: str = Field(..., description="Имя клиента для анализа")
@@ -42,18 +39,23 @@ class AnalysisCreateRequest(BaseModel):
     
     client_document_id: Optional[int] = Field(None, description="ID документа с резюме (обязателен, если include_resume=True)")
 
-    @root_validator
-    def check_dependencies(cls, values):
-        """Проверяет, что document_id передан, если запрошен анализ по резюме."""
-        include_resume, doc_id = values.get("include_resume"), values.get("client_document_id")
-        if include_resume and doc_id is None:
+    # ИЗМЕНЕНО: Заменен @root_validator на @model_validator
+    @model_validator(mode='after')
+    def check_dependencies(self) -> 'AnalysisCreateRequest':
+        """
+        Проверяет, что document_id передан, если запрошен анализ по резюме,
+        и что выбран хотя бы один источник данных.
+        """
+        # ИЗМЕНЕНО: доступ к полям через self, а не через 'values'
+        if self.include_resume and self.client_document_id is None:
             raise ValueError("client_document_id является обязательным, если include_resume=True.")
-        if not values.get("include_pgd") and not include_resume:
+        if not self.include_pgd and not self.include_resume:
             raise ValueError("Должен быть выбран хотя бы один источник анализа: PGD или резюме.")
-        return values
+        # ИЗМЕНЕНО: нужно вернуть self
+        return self
 
 
-# --- Существующие эндпоинты ---
+# --- Остальная часть файла без изменений ---
 
 @router.post("/pgd", response_model=PGDCalculationResponse)
 async def calculate_pgd(payload: PGDCalculationRequest) -> PGDCalculationResponse:
@@ -64,8 +66,6 @@ async def calculate_pgd(payload: PGDCalculationRequest) -> PGDCalculationRespons
     result = calculator.calculate(date_of_birth=payload.date_of_birth, gender=payload.gender)
     return result
 
-
-# ### ОБЪЕДИНЕННЫЙ ЭНДПОИНТ СОЗДАНИЯ АНАЛИЗА ###
 @router.post("/", response_model=AnalysisResponse, status_code=status.HTTP_201_CREATED)
 async def create_analysis(
     payload: AnalysisCreateRequest,
@@ -109,16 +109,14 @@ async def create_analysis(
             use_resume=payload.include_resume,
         )
     except ValueError as e:
-        # Отлавливаем ошибки валидации из сервиса
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e))
 
-    # Сохранение результатов в базу данных
     new_analysis = Analysis(
         user_id=current_user.id,
         client_name=payload.name,
         client_date_of_birth=payload.date_of_birth,
         client_gender=payload.gender,
-        pgd_data=pgd_data,  # Сохраняем Pydantic-объект, SQLAlchemy обработает его
+        pgd_data=pgd_data.model_dump() if pgd_data else None,
         insights=ai_result.insights,
         recommendations=ai_result.recommendations,
         client_document_id=document.id if document else None,
@@ -136,7 +134,6 @@ async def list_analyses(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> List[AnalysisResponse]:
-    """Возвращает историю анализов текущего пользователя."""
     result = await db.execute(
         select(Analysis).where(Analysis.user_id == current_user.id).order_by(Analysis.created_at.desc())
     )
@@ -150,7 +147,6 @@ async def get_analysis(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> AnalysisResponse:
-    """Возвращает один анализ по id (только для владельца)."""
     result = await db.execute(
         select(Analysis).where(Analysis.id == analysis_id, Analysis.user_id == current_user.id)
     )
@@ -166,7 +162,6 @@ async def delete_analysis(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Удаляет один анализ текущего пользователя."""
     result = await db.execute(
         delete(Analysis).where(Analysis.id == analysis_id, Analysis.user_id == current_user.id).returning(Analysis.id)
     )
@@ -182,7 +177,6 @@ async def delete_all_analyses(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Удаляет всю историю анализов текущего пользователя."""
     await db.execute(delete(Analysis).where(Analysis.user_id == current_user.id))
     await db.commit()
     return Response(status_code=status.HTTP_204_NO_CONTENT)
