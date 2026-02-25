@@ -26,13 +26,13 @@ app = FastAPI(
 
 # CORS: явно разрешаем прод-фронт и локальную разработку
 origins = [
-    "https://career-intelligence-frontend.onrender.com",
-    "http://localhost:5173",
+    "https://your-frontend-app.onrender.com", # URL вашего фронтенда
+    # "http://localhost:5173", # Можно оставить для локальной разработки
 ]
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # временно разрешаем всех
+    allow_origins=origins, # Указываем конкретный разрешенный источник
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
