@@ -1,120 +1,50 @@
-import React, { useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { useDropzone } from 'react-dropzone';
+import React, { useEffect, useState, useCallback } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { apiService } from '@/services/api';
+import { AnalysisListItem } from '@/types/api';
 import { useAuthStore } from '@/stores/authStore';
 import toast from 'react-hot-toast';
-import { Upload, FileText, Sparkles, LogOut, BarChart3, BrainCircuit, FileSignature } from 'lucide-react';
-import axios from 'axios';
-import { Document } from '@/types/api'; // Убедитесь, что тип Document импортирован
+// ИСПРАВЛЕНО: Убраны неиспользуемые иконки, но оставлены нужные
+import { PlusCircle, Trash2, Eye, LogOut } from 'lucide-react';
 
 export const DashboardPage: React.FC = () => {
   const navigate = useNavigate();
   const { user, logout } = useAuthStore();
-  const [isUploading, setIsUploading] = useState(false);
-  const [isAnalyzing, setIsAnalyzing] = useState(false);
-  
-  // ИСПРАВЛЕНО: Типизируем uploadedFile
-  const [uploadedFile, setUploadedFile] = useState<Document | null>(null);
+  const [analyses, setAnalyses] = useState<AnalysisListItem[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  // НОВОЕ: State для чекбоксов выбора типа анализа
-  const [includePgd, setIncludePgd] = useState(true);
-  const [includeResume, setIncludeResume] = useState(false);
-
-
-  const onDrop = useCallback(async (acceptedFiles: File[]) => {
-    const file = acceptedFiles[0];
-    if (!file) return;
-
-    setIsUploading(true);
+  // Функция для загрузки списка анализов
+  const loadAnalyses = useCallback(async () => {
     try {
-      const document = await apiService.uploadDocument(file);
-      setUploadedFile(document);
-      toast.success('Файл успешно загружен!');
-      // НОВОЕ: Автоматически включаем анализ по резюме после успешной загрузки
-      setIncludeResume(true); 
-    } catch (error: any) {
-      toast.error(error.response?.data?.detail || 'Ошибка загрузки');
+      const data = await apiService.listAnalyses();
+      setAnalyses(data);
+    } catch (error) {
+      toast.error('Ошибка загрузки истории анализов');
     } finally {
-      setIsUploading(false);
+      setIsLoading(false);
     }
   }, []);
 
-  const { getRootProps, getInputProps, isDragActive } = useDropzone({
-    onDrop,
-    accept: {
-      'application/pdf': ['.pdf'],
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document': ['.docx'],
-      'text/plain': ['.txt'],
-    },
-    maxFiles: 1,
-  });
+  // Загружаем данные при первом рендере
+  useEffect(() => {
+    setIsLoading(true);
+    loadAnalyses();
+  }, [loadAnalyses]);
 
-  // ИСПРАВЛЕНО: Полностью переписанная функция
-  const handleStartAnalysis = async () => {
-    if (!user) {
-      toast.error('Пользователь не найден. Пожалуйста, перезайдите.');
-      return;
-    }
-    if (includeResume && !uploadedFile) {
-      toast.error('Для анализа по резюме сначала загрузите файл.');
-      return;
-    }
-    if (!includePgd && !includeResume) {
-      toast.error('Выберите хотя бы один источник данных для анализа.');
-      return;
-    }
-
-    const name = user.full_name || user.email;
-    const date_of_birth = user.date_of_birth || '';
-    const gender = user.gender || '';
-
-    if (!date_of_birth || !gender) {
-        toast.error('Пожалуйста, заполните дату рождения и пол в вашем профиле.');
-        return;
-    }
-
-    setIsAnalyzing(true);
-    const loadingToast = toast.loading('Создаем анализ... Это может занять до минуты.');
-
-    try {
-      // ИСПРАВЛЕНО: Формируем правильный payload
-      const payload = {
-        name,
-        date_of_birth,
-        gender,
-        include_pgd: includePgd,
-        include_resume: includeResume,
-        client_document_id: includeResume && uploadedFile ? uploadedFile.id : null,
-      };
-
-      const result = await apiService.createAnalysis(payload);
-      
-      toast.dismiss(loadingToast);
-      toast.success('Анализ готов!');
-      
-      // ИСПРАВЛЕНО: Используем `result.analysis_id` из ответа API
-      navigate(`/analysis/${result.analysis_id}`);
-
-    } catch (error: any) {
-      toast.dismiss(loadingToast);
-      if (axios.isAxiosError(error)) {
-        const detail = (error.response?.data as any)?.detail;
-        let message = 'Ошибка анализа';
-        if (Array.isArray(detail)) {
-          message = detail.map((e) => e.msg).join('; ');
-        } else if (typeof detail === 'string') {
-          message = detail;
-        }
-        toast.error(message);
-      } else {
-        toast.error('Неизвестная ошибка анализа');
+  // Функция для удаления анализа
+  const handleDelete = async (id: number) => {
+    if (window.confirm('Вы уверены, что хотите удалить этот анализ?')) {
+      try {
+        await apiService.deleteAnalysis(id);
+        toast.success('Анализ успешно удален');
+        setAnalyses(analyses.filter(analysis => analysis.id !== id));
+      } catch (error) {
+        toast.error('Не удалось удалить анализ');
       }
-    } finally {
-      setIsAnalyzing(false);
     }
   };
 
+  // ИСПРАВЛЕНО: Восстановлена функция выхода
   const handleLogout = () => {
     logout();
     navigate('/login');
@@ -123,80 +53,76 @@ export const DashboardPage: React.FC = () => {
   return (
     <div className="min-h-screen bg-gray-50">
       <header className="bg-white shadow-sm">
-        {/* ... ваш JSX для хедера без изменений ... */}
-      </header>
-
-      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-          
-          {/* Upload Section - немного изменена для UX */}
-          <div className={`bg-white rounded-lg shadow-md p-6 transition-opacity ${!includeResume ? 'opacity-50' : ''}`}>
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <Upload className="w-5 h-5 text-primary-600" />
-              1. Загрузите резюме (если нужно)
-            </h2>
-            <div {...getRootProps()} className={`border-2 border-dashed rounded-lg p-8 text-center cursor-pointer ...`}>
-              {/* ... ваш JSX для dropzone без изменений ... */}
+        <div className="max-w-7xl mx-auto px-4 py-4 sm:px-6 lg:px-8 flex justify-between items-center">
+            <h1 className="text-2xl font-bold text-gray-900">
+                Career Intelligence Platform
+            </h1>
+            <div className="flex items-center gap-4">
+                <span className="text-gray-600">Привет, {user?.full_name || user?.email}!</span>
+                {/* ИСПРАВЛЕНО: Возвращена кнопка выхода */}
+                <button
+                    onClick={handleLogout}
+                    className="flex items-center gap-2 px-4 py-2 text-gray-700 hover:bg-gray-100 rounded-lg"
+                >
+                    <LogOut className="w-4 h-4" />
+                    Выйти
+                </button>
             </div>
-            {uploadedFile && (
-              <div className="mt-4 p-4 bg-green-50 rounded-lg">
-                <p className="text-sm font-medium text-green-800">✓ {uploadedFile.filename}</p>
-              </div>
-            )}
-          </div>
-
-          {/* Analysis Section - здесь основные изменения */}
-          <div className="bg-white rounded-lg shadow-md p-6">
-            <h2 className="text-xl font-semibold mb-4 flex items-center gap-2">
-              <Sparkles className="w-5 h-5 text-primary-600" />
-              2. Настройте и запустите анализ
-            </h2>
-            <p className="text-gray-600 mb-6">
-              Выберите источники данных, которые система будет использовать для построения рекомендаций.
-            </p>
-
-            {/* НОВОЕ: Чекбоксы для выбора */}
-            <div className="space-y-4 mb-6">
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="pgd-checkbox"
-                  checked={includePgd}
-                  onChange={(e) => setIncludePgd(e.target.checked)}
-                  className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                />
-                <label htmlFor="pgd-checkbox" className="ml-3 flex items-center gap-2 text-sm text-gray-900">
-                  <BrainCircuit className="w-5 h-5 text-gray-500" />
-                  Психографическая матрица (PGD)
-                </label>
-              </div>
-              <div className="flex items-center">
-                <input
-                  type="checkbox"
-                  id="resume-checkbox"
-                  checked={includeResume}
-                  onChange={(e) => setIncludeResume(e.target.checked)}
-                  className="h-4 w-4 text-primary-600 border-gray-300 rounded focus:ring-primary-500"
-                />
-                <label htmlFor="resume-checkbox" className="ml-3 flex items-center gap-2 text-sm text-gray-900">
-                  <FileSignature className="w-5 h-5 text-gray-500" />
-                  Данные из резюме
-                </label>
-              </div>
-            </div>
-
-            <button
-              onClick={handleStartAnalysis}
-              // ИСПРАВЛЕНО: Новая логика для disabled
-              disabled={isAnalyzing || (includeResume && !uploadedFile) || (!includePgd && !includeResume)}
-              className="w-full bg-primary-600 text-white py-3 rounded-lg hover:bg-primary-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
-            >
-              {isAnalyzing ? "Анализируем..." : "Запустить анализ"}
-            </button>
-            
-            {/* ... ваш JSX для кнопки "История анализов" и нижних карточек без изменений ... */}
-          </div>
         </div>
+      </header>
+      <main className="max-w-7xl mx-auto px-4 py-8 sm:px-6 lg:px-8">
+        <div className="flex justify-between items-center mb-8">
+          <h1 className="text-3xl font-bold text-gray-900">
+            История анализов
+          </h1>
+          <Link 
+            to="/analysis/new" 
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 text-white rounded-lg hover:bg-primary-700 shadow-sm"
+          >
+            <PlusCircle className="w-5 h-5" />
+            Создать новый анализ
+          </Link>
+        </div>
+
+        {isLoading ? (
+          <p>Загрузка истории...</p>
+        ) : analyses.length > 0 ? (
+          <div className="bg-white shadow rounded-lg">
+            <ul className="divide-y divide-gray-200">
+              {analyses.map(analysis => (
+                <li key={analysis.id} className="p-4 flex justify-between items-center">
+                  <div>
+                    <p className="font-semibold text-gray-800">{analysis.client_name}</p>
+                    <p className="text-sm text-gray-500">
+                      Создан: {new Date(analysis.created_at).toLocaleString()}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-4">
+                    <button
+                      onClick={() => navigate(`/analysis/${analysis.id}`)}
+                      className="text-primary-600 hover:text-primary-800"
+                      title="Просмотреть"
+                    >
+                      <Eye className="w-5 h-5" />
+                    </button>
+                    <button
+                      onClick={() => handleDelete(analysis.id)}
+                      className="text-red-500 hover:text-red-700"
+                      title="Удалить"
+                    >
+                      <Trash2 className="w-5 h-5" />
+                    </button>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : (
+          <div className="text-center py-12">
+            <h3 className="text-lg font-medium text-gray-900">История анализов пуста</h3>
+            <p className="mt-1 text-sm text-gray-500">Нажмите "Создать новый анализ", чтобы начать.</p>
+          </div>
+        )}
       </main>
     </div>
   );
