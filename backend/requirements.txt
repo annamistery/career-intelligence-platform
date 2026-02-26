@@ -27,7 +27,7 @@ pydantic==2.5.3
 pydantic-settings==2.1.0
 email-validator==2.1.0
 
-# HTTP клиент
+# HTTP клиент и асинхронные файлы
 httpx==0.26.0
 aiofiles==23.2.1
 
@@ -42,7 +42,7 @@ nltk==3.8.1
 reportlab==4.0.9
 weasyprint==60.2
 
-# Кэширование (опционально)
+# Кэширование
 redis==5.0.1
 
 # Логирование
@@ -51,11 +51,3 @@ structlog==24.1.0
 # Тестирование
 pytest==7.4.4
 pytest-asyncio==0.23.3
-
-# Синхронный драйвер (для Alembic миграций)
-psycopg2-binary==2.9.9
-
-# BUG FIX: удалены дублирующиеся записи:
-# sqlalchemy==2.0.25  (было дважды)
-# asyncpg==0.29.0     (было дважды)
-# httpx==0.26.0       (было дважды)
